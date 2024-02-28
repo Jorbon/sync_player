@@ -1,8 +1,21 @@
 use libmpv::{events::{Event, PropertyData}, Format};
+use std::io::{Read, Write};
 
 extern crate libmpv;
 
 fn main() {
+	let hostname = "localhost"; // "jorbonvm.centralus.cloudapp.azure.com";
+	let address = dns_lookup::lookup_host(hostname).unwrap();
+	let mut stream = std::net::TcpStream::connect((address[1], 7777u16)).unwrap();
+	
+	stream.write("test string".as_bytes()).unwrap();
+	
+	let mut buf = [0u8; 256];
+	let n = stream.read(&mut buf).unwrap();
+	println!("{n}: '{}'", String::from_utf8(buf.to_vec()).unwrap());
+	
+	return;
+	
 	let mpv = libmpv::Mpv::new().unwrap();
 	
 	mpv.set_property("input-default-bindings", "yes").unwrap();
