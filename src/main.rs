@@ -1,5 +1,5 @@
 use libmpv::{events::{Event, PropertyData}, FileState, Format};
-use std::{io::{Read, Write}, net::TcpStream};
+use std::{collections::VecDeque, io::{ErrorKind, Read, Write}, net::TcpStream};
 
 extern crate libmpv;
 
@@ -28,19 +28,47 @@ fn main() {
 	events.observe_property("seeking", Format::Flag, 0).unwrap();
 	events.observe_property("pause", Format::Flag, 0).unwrap();
 	
+	
+	mpv.playlist_load_files(&[("C:/Users/benap/OneDrive/big/RWBY/editing/gaming.mkv", FileState::Replace, None)]).unwrap();
+	
+	
+	let event_cooldown = 0.1;
+	let mut last_event = std::time::Instant::now();
+	
 	let mut seeking = false;
 	let mut update_pos = false;
 	
-	let mut buf = [0u8; 256];
+	let mut paused = true;
+	let mut timestamp = 0.0;
+	
+	let mut buffer = VecDeque::new();
 	
 	loop {
-		if let Ok(n) = stream.read(&mut buf) {
-			if n > 0 {
-				match buf[0] as char {
-					'p' => mpv.set_property("pause", match buf[1] { 0 => false, _ => true }).unwrap_or(()),
-					't' => mpv.set_property("playback-time", f64::from_le_bytes([buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]])).unwrap_or(()),
-					'f' => mpv.playlist_load_files(&[(&String::from_utf8(buf.split_at(1).1.to_vec()).unwrap(), FileState::Replace, None)]).unwrap_or(()),
-					_ => ()
+		let mut buf = vec![];
+		if let Err(e) = stream.read_to_end(&mut buf) {
+			match e.kind() {
+				ErrorKind::WouldBlock => (),
+				ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted => panic!("Server connection lost"),
+				kind => unimplemented!("Error kind: {kind}")
+			}
+		}
+		
+		if buf.len() > 0 {
+			buffer.append(&mut VecDeque::from(buf));
+			if buffer.len() >= 2 {
+				let data_size = (buffer[0]) as usize + ((buffer[1] as usize) << 8);
+				if buffer.len() >= data_size + 2 {
+					buffer.drain(..2);
+					let data = buffer.drain(..data_size).collect::<Vec<_>>();
+					match *data.get(0).unwrap_or(&0) as char {
+						'p' => {
+							mpv.set_property("pause", match data[1] { 0 => false, _ => true }).unwrap_or_else(|e| println!("{}", e));
+							mpv.set_property("playback-time", f64::from_le_bytes([data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]])).unwrap_or_else(|e| println!("{}", e));
+							last_event = std::time::Instant::now();
+						}
+						'f' => mpv.playlist_load_files(&[(&String::from_utf8(data.split_at(1).1.to_vec()).unwrap(), FileState::Replace, None)]).unwrap_or_else(|e| println!("{}", e)),
+						_ => ()
+					}
 				}
 			}
 		}
@@ -48,22 +76,30 @@ fn main() {
 		
 		if let Some(event) = events.wait_event(0.0) {
 			match event.unwrap() {
-				Event::PropertyChange { name: "pause", change: PropertyData::Flag(paused), .. } => send(&mut stream, 'p' as u8, &[match paused { true => 1, false => 0 }]),
+				Event::PropertyChange { name: "pause", change: PropertyData::Flag(p), .. } => {
+					paused = p;
+					if last_event.elapsed().as_secs_f64() > event_cooldown {
+						send(&mut stream, 'p' as u8, &[vec![match paused { true => 1, false => 0 }], f64::to_le_bytes(timestamp).to_vec()].concat());
+					}
+				}
 				Event::PropertyChange { name: "seeking", change: PropertyData::Flag(s), .. } => {
 					seeking = s;
 					if !s {
 						update_pos = true;
 					}
 				}
-				Event::PropertyChange { name: "path", change: PropertyData::Str(path), .. } => send(&mut stream, 'f' as u8, &path.as_bytes()),
-				Event::PropertyChange { name: "playback-time", change: PropertyData::Double(time), .. } => {
+				Event::PropertyChange { name: "path", change: PropertyData::Str(path), .. } => send(&mut stream, 'f' as u8, &path.replace("\\", "/").as_bytes()),
+				Event::PropertyChange { name: "playback-time", change: PropertyData::Double(t), .. } => {
+					timestamp = t;
 					if seeking || update_pos {
-						send(&mut stream, 't' as u8, &f64::to_le_bytes(time));
+						if last_event.elapsed().as_secs_f64() > event_cooldown {
+							send(&mut stream, 'p' as u8, &[vec![match paused { true => 1, false => 0 }], f64::to_le_bytes(timestamp).to_vec()].concat());
+						}
 						update_pos = false;
 					}
 				}
 				Event::Shutdown => {
-					stream.write_all(&[0, 4, 'e' as u8, 'x' as u8, 'i' as u8, 't' as u8]).unwrap();
+					stream.write_all(&[4, 0, 'e' as u8, 'x' as u8, 'i' as u8, 't' as u8]).unwrap();
 					break;
 				}
 				_ => {}

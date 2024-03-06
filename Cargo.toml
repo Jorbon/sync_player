@@ -2,10 +2,15 @@
 name = "sync_player"
 version = "0.1.0"
 edition = "2021"
+default-run = "sync_player"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[[bin]]
+name = "sync_player_server"
+path = "src/server.rs"
+
 
 [dependencies]
+confy = "0.6.1"
 dns-lookup = "2.0.4"
 libmpv-sirno = "2.0.2-fork.1"
 
