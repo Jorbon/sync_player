@@ -74,11 +74,14 @@ fn main() {
 					let data = buffer.drain(..data_size).collect::<Vec<_>>();
 					match *data.get(0).unwrap_or(&0) as char {
 						'p' => {
-							mpv.set_property("pause", match data[1] { 0 => false, _ => true }).unwrap_or_else(|e| println!("{}", e));
-							mpv.set_property("playback-time", f64::from_le_bytes([data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]])).unwrap_or_else(|e| println!("{}", e));
+							mpv.set_property("pause", match data[1] { 0 => false, _ => true }).unwrap_or_else(|e| println!("Couldn't set pause state: {e}"));
+							mpv.set_property("playback-time", f64::from_le_bytes([data[2], data[3], data[4], data[5], data[6], data[7], data[8], data[9]])).unwrap_or_else(|e| println!("Couldn't set playback time: {e}"));
 							last_event = std::time::Instant::now();
 						}
-						'f' => mpv.playlist_load_files(&[(&(media_path.clone() + &String::from_utf8(data.split_at(1).1.to_vec()).unwrap()), FileState::Replace, None)]).unwrap_or_else(|e| println!("{}", e)),
+						'f' => {
+							let file_path = String::from_utf8(data.split_at(1).1.to_vec()).unwrap();
+							mpv.playlist_load_files(&[(&(media_path.clone() + &file_path), FileState::Replace, None)]).unwrap_or_else(|e| println!("Media file '{file_path}' not found: {e}"));
+						}
 						_ => ()
 					}
 				}
