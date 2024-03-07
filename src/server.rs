@@ -1,5 +1,11 @@
 use std::{collections::VecDeque, io::{ErrorKind, Read, Write}, net::{SocketAddr, TcpListener, TcpStream}};
 
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Config {
+	pub port: u16
+}
+
 #[derive(Debug)]
 enum Connection {
 	Active { address: SocketAddr, stream: TcpStream, buffer: VecDeque<u8> },
@@ -16,8 +22,12 @@ impl Connection {
 }
 
 fn main() {
-	let listener = TcpListener::bind("0.0.0.0:7777").unwrap();
+	let Config { port } = confy::load_path(std::env::current_exe().unwrap().with_extension("toml")).unwrap();
+	
+	let listener = TcpListener::bind(format!("0.0.0.0:{port}")).unwrap();
 	listener.set_nonblocking(true).unwrap();
+	
+	println!("Started sync player server on port {port}");
 	
 	let mut connections = vec![];
 	

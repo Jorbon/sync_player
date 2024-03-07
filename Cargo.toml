@@ -13,4 +13,5 @@ path = "src/server.rs"
 confy = "0.6.1"
 dns-lookup = "2.0.4"
 libmpv-sirno = "2.0.2-fork.1"
+serde = { version = "1.0.197", features = ["derive"] }
 
