@@ -18,6 +18,31 @@ fn send(stream: &mut TcpStream, code: u8, data: &[u8]) {
 	stream.write_all(&[&[size as u8, (size >> 8) as u8, code], data].concat()).unwrap()
 }
 
+fn wait_for_message(stream: &mut TcpStream) -> Vec<u8> {
+	stream.set_nonblocking(false).unwrap();
+	
+	let mut size_buffer = [0; 2];
+	if let Err(e) = stream.read_exact(&mut size_buffer) {
+		match e.kind() {
+			ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted => panic!("Server connection lost"),
+			kind => unimplemented!("Error kind: {kind}")
+		}
+	}
+	
+	let data_size = (size_buffer[0]) as usize + ((size_buffer[1] as usize) << 8);
+	let mut buffer = vec![0; data_size];
+	if let Err(e) = stream.read_exact(&mut buffer) {
+		match e.kind() {
+			ErrorKind::ConnectionReset | ErrorKind::ConnectionAborted => panic!("Server connection lost"),
+			kind => unimplemented!("Error kind: {kind}")
+		}
+	}
+	
+	stream.set_nonblocking(true).unwrap();
+	buffer
+}
+
+
 fn main() {
 	let Config { host_address, port, media_path } = confy::load_path(std::env::current_exe().unwrap().with_extension("toml")).unwrap();
 	
@@ -28,7 +53,9 @@ fn main() {
 	//stream.set_nodelay(true).unwrap();
 	stream.set_nonblocking(true).unwrap();
 	
-	println!("Connected!");
+	send(&mut stream, 'j' as u8, "hello".as_bytes());
+	
+	println!("Server says: {}", String::from_utf8(wait_for_message(&mut stream)).unwrap());
 	
 	let mpv = libmpv::Mpv::new().unwrap();
 	
@@ -44,7 +71,7 @@ fn main() {
 	events.observe_property("pause", Format::Flag, 0).unwrap();
 	
 	
-	let event_cooldown = 0.5;
+	let event_cooldown = 0.05;
 	let mut last_event = std::time::Instant::now();
 	
 	let mut seeking = false;
@@ -99,7 +126,7 @@ fn main() {
 				}
 				Event::PropertyChange { name: "seeking", change: PropertyData::Flag(s), .. } => {
 					seeking = s;
-					if !s {
+					if !seeking {
 						update_pos = true;
 					}
 				}
